@@ -1,0 +1,13 @@
+{
+  "routes": [
+    {
+      "route": "/*",
+      "headers": {
+        "cache-control": "public, max-age=300"
+      }
+    }
+  ],
+  "mimeTypes": {
+    ".json": "application/json"
+  }
+}
