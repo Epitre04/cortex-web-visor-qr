@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor 3D — Verificación de pieza</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141821; --border:#252b38; --text:#e8eaed;
+    --muted:#8b93a1; --accent:#f59e0b; --good:#22c55e; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:Arial,Helvetica,sans-serif;overflow:hidden;}
+  #scene{position:fixed;inset:0;}
+  #scene canvas{display:block;}
+
+  #topbar{position:fixed;top:0;left:0;right:0;padding:12px 16px;
+    background:linear-gradient(180deg,rgba(11,13,18,.92),rgba(11,13,18,0));
+    z-index:10;pointer-events:none;}
+  #topbar h1{font-size:15px;margin:0;pointer-events:auto;}
+  #topbar .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+  #panel{position:fixed;left:0;right:0;bottom:0;z-index:10;
+    background:var(--panel);border-top:1px solid var(--border);
+    border-radius:16px 16px 0 0;padding:16px;
+    max-height:52vh;overflow-y:auto;
+    transform:translateY(0);transition:transform .25s ease;}
+  #panel.collapsed{transform:translateY(calc(100% - 54px));}
+  #handle{width:40px;height:4px;background:var(--border);border-radius:2px;
+    margin:0 auto 12px;cursor:pointer;}
+
+  .mark{font-size:20px;font-weight:bold;letter-spacing:.5px;}
+  .perfil{color:var(--accent);font-size:13px;margin-top:2px;}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;}
+  .field{background:#0f1219;border:1px solid var(--border);border-radius:10px;padding:9px;}
+  .field .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  .field .val{font-size:13px;margin-top:2px;font-weight:600;word-break:break-word;}
+
+  .connects{margin-top:10px;padding:9px;background:#0f1219;border-radius:10px;border:1px solid var(--border);}
+  .connects .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+
+  .ok-banner{margin-top:12px;padding:9px 11px;border-radius:10px;font-size:12px;font-weight:bold;
+    background:rgba(34,197,94,.12);color:var(--good);border:1px solid rgba(34,197,94,.35);}
+  .warn-banner{margin-top:12px;padding:9px 11px;border-radius:10px;font-size:12px;font-weight:bold;
+    background:rgba(239,68,68,.12);color:var(--bad);border:1px solid rgba(239,68,68,.35);}
+
+  #picker{position:fixed;top:64px;right:12px;z-index:10;}
+  #picker select{padding:8px 10px;border-radius:8px;background:var(--panel);color:var(--text);
+    border:1px solid var(--border);font-size:12px;max-width:46vw;}
+
+  #legend{position:fixed;top:64px;left:12px;z-index:10;background:var(--panel);
+    border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:11px;}
+  #legend div{display:flex;align-items:center;gap:6px;margin:3px 0;}
+  #legend span.sw{width:10px;height:10px;border-radius:3px;display:inline-block;}
+
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);font-size:13px;z-index:20;background:var(--bg);}
+</style>
+</head>
+<body>
+
+<div id="loading">Cargando modelo…</div>
+<div id="errorGlobal" style="display:none;position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  color:#ef4444;font-size:14px;z-index:20;background:#0b0d12;padding:24px;text-align:center;"></div>
+
+<div id="scene"></div>
+
+<div id="topbar">
+  <h1>🔩 Visor de trazabilidad</h1>
+  <div class="sub" id="proyectoNombre">—</div>
+</div>
+
+<div id="legend">
+  <div><span class="sw" style="background:#3b82f6"></span> Nivel 1 (vigas)</div>
+  <div><span class="sw" style="background:#14b8a6"></span> Nivel 3 (vigas)</div>
+  <div><span class="sw" style="background:#8b5cf6"></span> Columnas</div>
+  <div><span class="sw" style="background:#f59e0b"></span> Pieza escaneada</div>
+  <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="checkbox" id="chkGrids" checked style="accent-color:#f59e0b;">
+      Mostrar grids
+    </label>
+  </div>
+</div>
+
+<div id="picker">
+  <select id="selPieza"><option value="">— Elegir pieza (simular escaneo) —</option></select>
+</div>
+
+<div id="panel" class="collapsed">
+  <div id="handle"></div>
+  <div id="sinSeleccion" style="color:var(--muted);font-size:13px;text-align:center;">
+    Escanea un QR o elige una pieza arriba para ver su ficha.
+  </div>
+  <div id="ficha" style="display:none;">
+    <div class="mark" id="c-mark"></div>
+    <div class="perfil" id="c-perfil"></div>
+    <div class="grid2">
+      <div class="field"><div class="lbl">Nivel</div><div class="val" id="c-nivel"></div></div>
+      <div class="field"><div class="lbl">Coordenada de grid</div><div class="val" id="c-coord-grid" style="color:var(--accent);"></div></div>
+      <div class="field"><div class="lbl">Longitud</div><div class="val" id="c-long"></div></div>
+      <div class="field"><div class="lbl">Coord. inicio (mm)</div><div class="val" id="c-ini"></div></div>
+      <div class="field"><div class="lbl">Coord. fin (mm)</div><div class="val" id="c-fin"></div></div>
+      <div class="field"><div class="lbl">ElementId (Revit)</div><div class="val" id="c-id"></div></div>
+      <div class="field"><div class="lbl">Marca</div><div class="val" id="c-mark2"></div></div>
+    </div>
+    <div class="connects">
+      <div class="lbl">Piezas conectadas</div>
+      <div class="val" id="c-conecta" style="margin-top:4px;font-size:13px;font-weight:600;"></div>
+    </div>
+    <div id="banner"></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// ------------------------------------------------------------------
+// Datos por proyecto: se cargan dinámicamente desde /data/<proyecto>.json
+// según el parámetro ?proyecto= de la URL. El visor en sí no cambia
+// cuando se agrega un proyecto nuevo — solo se suma un archivo de datos.
+// ------------------------------------------------------------------
+let PIEZAS = [];
+let GRIDS_DATA = { grids: [], niveles: [] };
+let NOMBRE_PROYECTO = "";
+const byMark = {};
+const meshes = {};
+
+async function cargarDatosProyecto(slugProyecto) {
+  const resp = await fetch(`./data/${slugProyecto}.json`);
+  if (!resp.ok) throw new Error(`No se encontró el proyecto "${slugProyecto}" (data/${slugProyecto}.json)`);
+  return resp.json();
+}
+
+function mostrarErrorGlobal(mensaje) {
+  document.getElementById("loading").style.display = "none";
+  const el = document.getElementById("errorGlobal");
+  el.style.display = "flex";
+  el.textContent = "⚠ " + mensaje;
+}
+
+const SCALE = 1 / 1000; // mm -> metros
+
+const colorPorNivel = {
+  "NIVEL 1": 0x3b82f6,
+  "NIVEL 3": 0x14b8a6,
+  "COLUMNA (N1-N3)": 0x8b5cf6,
+};
+const colorDefault = 0x6b7280;
+const colorHighlight = 0xf59e0b;
+
+// --- Escena three.js (no depende de los datos del proyecto) ---
+const container = document.getElementById("scene");
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d12);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(10, 20, 10);
+scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+dirLight2.position.set(-10, -10, -10);
+scene.add(dirLight2);
+
+const grid = new THREE.GridHelper(60, 30, 0x2a3040, 0x1a1f29);
+scene.add(grid);
+
+const gridGroup = new THREE.Group();
+scene.add(gridGroup);
+const Z_MIN = -1;
+
+function radioPorPerfil(perfil){
+  if (perfil.includes("200")) return 0.09;
+  if (perfil.includes("150")) return 0.07;
+  return 0.055; // 100x100
+}
+
+function crearTubo(p, esHighlight){
+  const ini = new THREE.Vector3(p.x_ini, p.z_ini, p.y_ini).multiplyScalar(SCALE);
+  const fin = new THREE.Vector3(p.x_fin, p.z_fin, p.y_fin).multiplyScalar(SCALE);
+  const dir = new THREE.Vector3().subVectors(fin, ini);
+  const length = dir.length();
+  const radius = radioPorPerfil(p.perfil);
+
+  const geo = new THREE.CylinderGeometry(radius, radius, length, 12);
+  const color = esHighlight ? colorHighlight : (colorPorNivel[p.nivel] || colorDefault);
+  const mat = new THREE.MeshStandardMaterial({
+    color, emissive: esHighlight ? 0x7a4400 : 0x000000,
+    emissiveIntensity: esHighlight ? 0.5 : 0, roughness: 0.5, metalness: 0.3,
+    transparent: !esHighlight, opacity: esHighlight ? 1 : 0.55,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+
+  const mid = new THREE.Vector3().addVectors(ini, fin).multiplyScalar(0.5);
+  mesh.position.copy(mid);
+  const quat = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0), dir.clone().normalize()
+  );
+  mesh.quaternion.copy(quat);
+  mesh.userData.mark = p.mark;
+  return mesh;
+}
+
+function crearEtiquetaTexto(texto, color = "#f59e0b") {
+  const canvas = document.createElement("canvas");
+  const size = 128;
+  canvas.width = size; canvas.height = size;
+  const ctx2d = canvas.getContext("2d");
+  ctx2d.fillStyle = "rgba(15,18,25,0.85)";
+  ctx2d.beginPath();
+  ctx2d.arc(size/2, size/2, size/2 - 6, 0, Math.PI*2);
+  ctx2d.fill();
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 6;
+  ctx2d.stroke();
+  ctx2d.fillStyle = color;
+  ctx2d.font = "bold 64px Arial";
+  ctx2d.textAlign = "center";
+  ctx2d.textBaseline = "middle";
+  ctx2d.fillText(texto, size/2, size/2 + 4);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.1, 1.1, 1.1);
+  return sprite;
+}
+
+let centroide = new THREE.Vector3();
+
+function construirEscenaDesdeDatos(){
+  PIEZAS.forEach(p => {
+    const m = crearTubo(p, false);
+    scene.add(m);
+    meshes[p.mark] = m;
+    centroide.add(m.position);
+  });
+  if (PIEZAS.length > 0) centroide.divideScalar(PIEZAS.length);
+
+  GRIDS_DATA.grids.forEach(g => {
+    const MARGEN_M = 2;
+    const dirX = g.x_fin - g.x_ini, dirY = g.y_fin - g.y_ini;
+    const largo = Math.hypot(dirX, dirY) || 1;
+    const extX = (dirX / largo) * (MARGEN_M * 1000);
+    const extY = (dirY / largo) * (MARGEN_M * 1000);
+
+    const xIniExt = g.x_ini - extX, yIniExt = g.y_ini - extY;
+    const xFinExt = g.x_fin + extX, yFinExt = g.y_fin + extY;
+
+    const ini = new THREE.Vector3(xIniExt * SCALE, Z_MIN, yIniExt * SCALE);
+    const fin = new THREE.Vector3(xFinExt * SCALE, Z_MIN, yFinExt * SCALE);
+
+    const geo = new THREE.BufferGeometry().setFromPoints([ini, fin]);
+    const mat = new THREE.LineDashedMaterial({ color: 0xf59e0b, dashSize: 0.3, gapSize: 0.15, transparent: true, opacity: 0.55 });
+    const line = new THREE.Line(geo, mat);
+    line.computeLineDistances();
+    gridGroup.add(line);
+
+    const label1 = crearEtiquetaTexto(g.nombre);
+    label1.position.copy(ini);
+    gridGroup.add(label1);
+    const label2 = crearEtiquetaTexto(g.nombre);
+    label2.position.copy(fin);
+    gridGroup.add(label2);
+  });
+
+  camera.position.set(centroide.x + 20, centroide.y + 14, centroide.z + 20);
+  controls.target.copy(centroide);
+  controls.update();
+}
+
+document.getElementById("chkGrids").addEventListener("change", (ev) => {
+  gridGroup.visible = ev.target.checked;
+});
+
+// --- Selección / resaltado ---
+const sel = document.getElementById("selPieza");
+let actual = null;
+
+function seleccionarPieza(mark, moverCamara){
+  const p = byMark[mark];
+  if (!p) return;
+
+  if (actual && meshes[actual]){
+    const old = byMark[actual];
+    const oldMesh = meshes[actual];
+    oldMesh.material.color.set(colorPorNivel[old.nivel] || colorDefault);
+    oldMesh.material.emissiveIntensity = 0;
+    oldMesh.material.transparent = true;
+    oldMesh.material.opacity = 0.55;
+  }
+
+  const mesh = meshes[mark];
+  mesh.material.color.set(colorHighlight);
+  mesh.material.emissive.set(0x7a4400);
+  mesh.material.emissiveIntensity = 0.5;
+  mesh.material.transparent = false;
+  mesh.material.opacity = 1;
+  actual = mark;
+
+  renderFicha(p);
+  document.getElementById("panel").classList.remove("collapsed");
+  sel.value = mark;
+
+  if (moverCamara){
+    const pos = mesh.position;
+    const offset = new THREE.Vector3(3.5, 2.5, 3.5);
+    const destino = pos.clone().add(offset);
+    animarCamara(destino, pos);
+  }
+}
+
+function animarCamara(destinoPos, destinoTarget){
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+  const t0 = performance.now();
+  const dur = 700;
+  function step(t){
+    const k = Math.min(1, (t - t0) / dur);
+    const ease = 1 - Math.pow(1 - k, 3);
+    camera.position.lerpVectors(startPos, destinoPos, ease);
+    controls.target.lerpVectors(startTarget, destinoTarget, ease);
+    controls.update();
+    if (k < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function renderFicha(p){
+  document.getElementById("sinSeleccion").style.display = "none";
+  document.getElementById("ficha").style.display = "block";
+  document.getElementById("c-mark").textContent = p.mark;
+  document.getElementById("c-mark2").textContent = p.mark;
+  document.getElementById("c-perfil").textContent = p.perfil;
+  document.getElementById("c-nivel").textContent = p.nivel;
+  document.getElementById("c-coord-grid").textContent = p.coordenada_grid || "—";
+  document.getElementById("c-long").textContent = p.long_mm + " mm";
+  document.getElementById("c-ini").textContent = `(${p.x_ini}, ${p.y_ini}, ${p.z_ini})`;
+  document.getElementById("c-fin").textContent = `(${p.x_fin}, ${p.y_fin}, ${p.z_fin})`;
+  document.getElementById("c-id").textContent = p.elem_id;
+
+  const conectaEl = document.getElementById("c-conecta");
+  const banner = document.getElementById("banner");
+  conectaEl.textContent = p.conecta_con;
+  if (p.conecta_con.includes("verificar")){
+    banner.innerHTML = '<div class="warn-banner">⚠ Extremo libre — no se detectó conexión automática. Verificar contra columna/viga de cimentación en campo.</div>';
+  } else {
+    banner.innerHTML = '<div class="ok-banner">✓ Conexiones detectadas automáticamente por proximidad de coordenadas</div>';
+  }
+}
+
+document.getElementById("handle").addEventListener("click", () => {
+  document.getElementById("panel").classList.toggle("collapsed");
+});
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function animate(){
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// --- Inicio: leer ?proyecto= y ?id= de la URL, cargar datos, construir escena ---
+async function iniciar(){
+  const params = new URLSearchParams(window.location.search);
+  const slugProyecto = params.get("proyecto");
+  const idParam = params.get("id");
+
+  if (!slugProyecto){
+    mostrarErrorGlobal('Falta el parámetro "proyecto" en la URL. Ejemplo: ?proyecto=aulas-armando-luna&id=T150-014');
+    return;
+  }
+
+  let datos;
+  try {
+    datos = await cargarDatosProyecto(slugProyecto);
+  } catch (err) {
+    mostrarErrorGlobal(err.message);
+    return;
+  }
+
+  PIEZAS = datos.piezas || [];
+  GRIDS_DATA = { grids: datos.grids || [], niveles: datos.niveles || [] };
+  NOMBRE_PROYECTO = datos.proyecto || slugProyecto;
+  document.getElementById("proyectoNombre").textContent = NOMBRE_PROYECTO;
+
+  PIEZAS.forEach(p => byMark[p.mark] = p);
+  PIEZAS.slice().sort((a,b)=>a.mark.localeCompare(b.mark)).forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.mark;
+    opt.textContent = `${p.mark} — ${p.perfil}`;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => {
+    if (sel.value) seleccionarPieza(sel.value, true);
+  });
+
+  construirEscenaDesdeDatos();
+  document.getElementById("loading").style.display = "none";
+
+  if (idParam && byMark[idParam]){
+    seleccionarPieza(idParam, true);
+  } else if (idParam){
+    document.getElementById("sinSeleccion").textContent =
+      `No se encontró la pieza "${idParam}" en este proyecto.`;
+    document.getElementById("panel").classList.remove("collapsed");
+  }
+
+  animate();
+}
+
+iniciar();
+</script>
+
+</body>
+</html>
