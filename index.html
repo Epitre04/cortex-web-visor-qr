@@ -28,7 +28,9 @@
     transform:translateY(0);transition:transform .25s ease;}
   #panel.collapsed{transform:translateY(calc(100% - 54px));}
   #handle{width:40px;height:4px;background:var(--border);border-radius:2px;
-    margin:0 auto 12px;cursor:pointer;}
+    margin:0 auto 4px;cursor:pointer;}
+  #handleLabel{text-align:center;font-size:11px;color:var(--muted);
+    margin:0 0 10px;cursor:pointer;user-select:none;}
 
   .mark{font-size:20px;font-weight:bold;letter-spacing:.5px;}
   .perfil{color:var(--accent);font-size:13px;margin-top:2px;}
@@ -91,6 +93,7 @@
 
 <div id="panel" class="collapsed">
   <div id="handle"></div>
+  <div id="handleLabel">Ocultar</div>
   <div id="sinSeleccion" style="color:var(--muted);font-size:13px;text-align:center;">
     Escanea un QR o elige una pieza arriba para ver su ficha.
   </div>
@@ -327,6 +330,7 @@ function seleccionarPieza(mark, moverCamara){
 
   renderFicha(p);
   document.getElementById("panel").classList.remove("collapsed");
+  document.getElementById("handleLabel").textContent = "Ocultar";
   sel.value = mark;
 
   if (moverCamara){
@@ -376,9 +380,14 @@ function renderFicha(p){
   }
 }
 
-document.getElementById("handle").addEventListener("click", () => {
-  document.getElementById("panel").classList.toggle("collapsed");
-});
+function togglePanel(){
+  const panel = document.getElementById("panel");
+  panel.classList.toggle("collapsed");
+  document.getElementById("handleLabel").textContent =
+    panel.classList.contains("collapsed") ? "Mostrar" : "Ocultar";
+}
+document.getElementById("handle").addEventListener("click", togglePanel);
+document.getElementById("handleLabel").addEventListener("click", togglePanel);
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -436,6 +445,7 @@ async function iniciar(){
     document.getElementById("sinSeleccion").textContent =
       `No se encontró la pieza "${idParam}" en este proyecto.`;
     document.getElementById("panel").classList.remove("collapsed");
+    document.getElementById("handleLabel").textContent = "Ocultar";
   }
 
   animate();
